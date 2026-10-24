@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: eventflow-api
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/eventflow}
+    username: ${DB_USERNAME:eventflow}
+    password: ${DB_PASSWORD:EventFlowLocal2026!}
+    hikari:
+      maximum-pool-size: 5
+
+  jpa:
+    open-in-view: false
+    properties:
+      hibernate.type.json_format_mapper: org.hibernate.type.format.jackson.Jackson3JsonFormatMapper
+    hibernate:
+      ddl-auto: validate
+
+  flyway:
+    enabled: true
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
