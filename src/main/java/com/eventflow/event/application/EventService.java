@@ -5,6 +5,8 @@ import com.eventflow.event.api.CreateEventRequest;
 import com.eventflow.event.api.EventResponse;
 import com.eventflow.event.domain.WebhookEvent;
 import com.eventflow.event.persistence.WebhookEventRepository;
+import com.eventflow.outbox.EventOutbox;
+import com.eventflow.outbox.EventOutboxRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,10 +16,13 @@ import java.util.UUID;
 public class EventService {
 
     private final WebhookEventRepository webhookEventRepository;
+    private final EventOutboxRepository eventOutboxRepository;
 
-    public EventService(WebhookEventRepository webhookEventRepository){
+    public EventService(WebhookEventRepository webhookEventRepository, EventOutboxRepository eventOutboxRepository){
         this.webhookEventRepository=webhookEventRepository;
+        this.eventOutboxRepository=eventOutboxRepository;
     }
+
 
     @Transactional
     public EventResponse createEvent(CreateEventRequest request){
@@ -33,6 +38,14 @@ public class EventService {
         );
 
         WebhookEvent saved = webhookEventRepository.saveAndFlush(event);
+
+        EventOutbox outbox = new EventOutbox(
+                saved.getEventId(),
+                saved.getEventType(),
+                saved.getPayload()
+        );
+        eventOutboxRepository.save(outbox);
+
         return toResponse(saved);
     }
 
@@ -43,6 +56,18 @@ public class EventService {
                 .orElseThrow(() -> new EventNotFoundException(eventId));
 
         return toResponse(event);
+
+    }
+
+    @Transactional
+    public void replayEvent(UUID eventId){
+
+        EventOutbox outbox = eventOutboxRepository.findByEventId(eventId)
+                .orElseThrow(() -> new EventNotFoundException(eventId));
+
+        outbox.replay();
+
+        eventOutboxRepository.save(outbox);
 
     }
 

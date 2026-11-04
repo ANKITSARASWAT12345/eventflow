@@ -29,5 +29,12 @@ public class EventController {
         return eventService.getEvent(eventId);
     }
 
+    @PostMapping("/{eventId}/replay")
+    @ResponseStatus(HttpStatus.OK)
+    public void replayEvent(@PathVariable UUID eventId) {
+        eventService.replayEvent(eventId);
+    }
+
+
 
 }

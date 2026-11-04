@@ -1,55 +1,3 @@
-//
-//package com.eventflow;
-//
-//import org.junit.jupiter.api.Test;
-//import org.springframework.beans.factory.annotation.Autowired;
-//import org.springframework.boot.test.context.SpringBootTest;
-////import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-//import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-//import org.springframework.test.web.servlet.MockMvc;
-//
-//import static org.springframework.http.MediaType.APPLICATION_JSON;
-//import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-//import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-//import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-//import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-//
-//@SpringBootTest
-//@org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
-//class WebhookEventIntegrationTest {
-//
-//    @Autowired
-//    private MockMvc mockMvc;
-//
-//    @Test
-//    void createEventShouldReturn201() throws Exception {
-//        String requestBody = """
-//                {
-//                  "eventType": "order.created",
-//                  "payload": {
-//                    "orderId": "ORD-101"
-//                  }
-//                }
-//                """;
-//
-//        mockMvc.perform(post("/api/v1/events")
-//                        .contentType(APPLICATION_JSON)
-//                        .content(requestBody))
-//                .andExpect(status().isCreated())
-//                .andExpect(jsonPath("$.eventId").exists());
-//    }
-//
-//    @Test
-//    void missingEventShouldReturn404() throws Exception {
-//        mockMvc.perform(get(
-//                        "/api/v1/events/00000000-0000-0000-0000-000000000000"))
-//                .andExpect(status().isNotFound())
-//                .andExpect(jsonPath("$.status").value(404))
-//                .andExpect(jsonPath("$.error").value("NOT_FOUND"));
-//    }
-//}
-
-
 
 package com.eventflow;
 
@@ -57,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -65,12 +14,15 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "eventflow.outbox.worker.enabled=false"
+})
 @AutoConfigureMockMvc
 @Testcontainers
 class WebhookEventIntegrationTest {
@@ -92,8 +44,12 @@ class WebhookEventIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @Test
-    void createEventShouldReturn201() throws Exception {
+    void createEventShouldSaveEventAndOutboxRecord() throws Exception {
+
         String requestBody = """
                 {
                   "eventType": "order.created",
@@ -103,15 +59,50 @@ class WebhookEventIntegrationTest {
                 }
                 """;
 
-        mockMvc.perform(post("/api/v1/events")
+        String response = mockMvc.perform(post("/api/v1/events")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.eventId").exists());
+                .andExpect(jsonPath("$.eventId").exists())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        String eventId = com.jayway.jsonpath.JsonPath.read(
+                response, "$.eventId"
+        );
+
+        Integer eventCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM webhook_events WHERE event_id = ?",
+                Integer.class,
+                java.util.UUID.fromString(eventId)
+        );
+
+        Integer outboxCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM event_outbox WHERE event_id = ?",
+                Integer.class,
+                java.util.UUID.fromString(eventId)
+        );
+
+        String outboxStatus = jdbcTemplate.queryForObject(
+                "SELECT status FROM event_outbox WHERE event_id = ?",
+                String.class,
+                java.util.UUID.fromString(eventId)
+        );
+
+        assertEquals(1, eventCount,
+                "Exactly one event should be saved");
+
+        assertEquals(1, outboxCount,
+                "Exactly one outbox record should be saved");
+
+        assertEquals("PENDING", outboxStatus,
+                "New outbox record should initially be PENDING");
     }
 
     @Test
     void missingEventShouldReturn404() throws Exception {
+
         mockMvc.perform(get(
                         "/api/v1/events/00000000-0000-0000-0000-000000000000"))
                 .andExpect(status().isNotFound())

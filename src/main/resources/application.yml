@@ -25,6 +25,9 @@ spring:
 server:
   port: 8080
 
+kafka:
+  topic: eventflow.events
+
 management:
   endpoints:
     web:
@@ -38,3 +41,12 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+eventflow:
+  kafka:
+    topic: eventflow.events
+  outbox:
+    batch-size: 100
+    worker:
+      enabled: true
+    poll-interval-ms: 5000
