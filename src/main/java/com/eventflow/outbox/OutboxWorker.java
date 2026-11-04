@@ -20,34 +20,40 @@ public class OutboxWorker {
     private static final Logger log =
             LoggerFactory.getLogger(OutboxWorker.class);
 
-    private final OutboxClaimService outboxClaimService;
+    private final OutboxClaimService claimService;
     private final EventOutboxRepository outboxRepository;
     private final OutboxPublisher outboxPublisher;
     private final int batchSize;
 
-
     public OutboxWorker(
-            OutboxClaimService outboxClaimService,
+            OutboxClaimService claimService,
             EventOutboxRepository outboxRepository,
             OutboxPublisher outboxPublisher,
             @Value("${eventflow.outbox.batch-size:100}") int batchSize
     ) {
-        this.outboxClaimService = outboxClaimService;
+        this.claimService = claimService;
         this.outboxRepository = outboxRepository;
         this.outboxPublisher = outboxPublisher;
         this.batchSize = batchSize;
     }
-
 
     @Scheduled(
             fixedDelayString = "${eventflow.outbox.poll-interval-ms:5000}"
     )
     public void processPendingEvents() {
 
-        List<EventOutbox> pendingEvents =
-                outboxClaimService.claimPendingEvents(batchSize);
+        // Recover events abandoned by crashed workers.
+        int recovered = claimService.recoverExpiredClaims();
 
-        for (EventOutbox outbox : pendingEvents) {
+        if (recovered > 0) {
+            log.warn("Recovered {} expired outbox claims", recovered);
+        }
+
+        // Claim a batch of pending events.
+        List<EventOutbox> claimedEvents =
+                claimService.claimPendingEvents(batchSize);
+
+        for (EventOutbox outbox : claimedEvents) {
 
             try {
                 outboxPublisher.publish(outbox);
@@ -76,5 +82,4 @@ public class OutboxWorker {
             }
         }
     }
-
 }

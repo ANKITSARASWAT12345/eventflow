@@ -44,6 +44,12 @@ public class EventOutbox {
     @Column(name="next_retry_at")
     private Instant nextRetryAt;
 
+    @Column(name = "locked_at")
+    private Instant lockedAt;
+
+    @Column(name = "claim_token")
+    private UUID claimToken;
+
     protected EventOutbox() {
         // Required by JPA
     }
@@ -110,22 +116,56 @@ public class EventOutbox {
 
     public Instant getNextRetryAt() {return nextRetryAt;}
 
+    public Instant getLockedAt() {return lockedAt;}
+
+    public UUID getClaimToken() {return claimToken;}
+
     public void markPublished() {
         this.status = "PUBLISHED";
         this.publishedAt = Instant.now();
         this.lastError = null;
         this.nextRetryAt=null;
+        this.lockedAt = null;
+        this.claimToken = null;
     }
 
-//    public void markFailed(String error) {
-//        this.status = "FAILED";
-//        this.attempts++;
-//        this.lastError = error;
-//    }
+    public void markProcessing() {
+        if (!"PENDING".equals(this.status)) {
+            throw new IllegalStateException(
+                    "Only PENDING events can be processed"
+            );
+        }
+
+        this.status = "PROCESSING";
+        this.lockedAt = Instant.now();
+        this.claimToken = UUID.randomUUID();
+
+    }
+
+    public void releaseForRetry() {
+        this.status = "PENDING";
+        this.lockedAt = null;
+        this.claimToken = null;
+    }
+
+    public void recoverExpiredClaim() {
+        if (!"PROCESSING".equals(this.status)) {
+            throw new IllegalStateException(
+                    "Only PROCESSING events can be recovered"
+            );
+        }
+
+        this.status = "PENDING";
+        this.lockedAt = null;
+        this.claimToken = null;
+    }
 
     public void markRetryableFailure(String error) {
         this.attempts++;
         this.lastError = error;
+        this.lockedAt = null;
+        this.status = "PENDING";
+        this.claimToken = null;
 
         if (this.attempts >= 5) {
             this.status = "FAILED";
@@ -154,6 +194,8 @@ public class EventOutbox {
         this.lastError = null;
         this.nextRetryAt = null;
         this.publishedAt = null;
+        this.lockedAt = null;
+        this.claimToken = null;
     }
 
 
