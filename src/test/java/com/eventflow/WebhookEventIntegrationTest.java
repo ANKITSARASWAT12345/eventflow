@@ -155,6 +155,7 @@ class WebhookEventIntegrationTest {
                 new IllegalStateException("Simulated Kafka failure")
         ).when(publisher).publish(any(EventOutbox.class));
 
+        //added new comment
         // 3. Create worker using real database services.
         OutboxWorker worker = new OutboxWorker(
                 claimService,
