@@ -1,3 +1,4 @@
+
 package com.eventflow.outbox;
 
 import org.slf4j.Logger;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
+import java.util.UUID;
 
 @Component
 @ConditionalOnProperty(
@@ -21,18 +23,18 @@ public class OutboxWorker {
             LoggerFactory.getLogger(OutboxWorker.class);
 
     private final OutboxClaimService claimService;
-    private final EventOutboxRepository outboxRepository;
+    private final OutboxCompletionService completionService;
     private final OutboxPublisher outboxPublisher;
     private final int batchSize;
 
     public OutboxWorker(
             OutboxClaimService claimService,
-            EventOutboxRepository outboxRepository,
+            OutboxCompletionService completionService,
             OutboxPublisher outboxPublisher,
             @Value("${eventflow.outbox.batch-size:100}") int batchSize
     ) {
         this.claimService = claimService;
-        this.outboxRepository = outboxRepository;
+        this.completionService = completionService;
         this.outboxPublisher = outboxPublisher;
         this.batchSize = batchSize;
     }
@@ -55,29 +57,53 @@ public class OutboxWorker {
 
         for (EventOutbox outbox : claimedEvents) {
 
+            UUID eventId = outbox.getEventId();
+            UUID claimToken = outbox.getClaimToken();
+            int currentAttempts = outbox.getAttempts();
+
             try {
                 outboxPublisher.publish(outbox);
 
-                outbox.markPublished();
-                outboxRepository.save(outbox);
-
-                log.info(
-                        "Event published successfully. eventId={}",
-                        outbox.getEventId()
-                );
-
             } catch (Exception ex) {
 
-                outbox.markRetryableFailure(ex.getMessage());
-                outboxRepository.save(outbox);
+                boolean recorded = completionService.markFailure(
+                        eventId,
+                        claimToken,
+                        currentAttempts,
+                        ex.getMessage()
+                );
 
-                log.error(
-                        "Failed to publish event. eventId={}, attempts={}, nextRetryAt={}, status={}",
-                        outbox.getEventId(),
-                        outbox.getAttempts(),
-                        outbox.getNextRetryAt(),
-                        outbox.getStatus(),
-                        ex
+                if (recorded) {
+                    log.error(
+                            "Failed to publish event. eventId={}, attempts={}",
+                            eventId,
+                            currentAttempts + 1,
+                            ex
+                    );
+                } else {
+                    log.warn(
+                            "Failure update skipped because claim is no longer valid. eventId={}",
+                            eventId
+                    );
+                }
+
+                continue;
+            }
+
+            boolean completed = completionService.markPublished(
+                    eventId,
+                    claimToken
+            );
+
+            if (completed) {
+                log.info(
+                        "Event published successfully. eventId={}",
+                        eventId
+                );
+            } else {
+                log.warn(
+                        "Publish completion skipped because claim is no longer valid. eventId={}",
+                        eventId
                 );
             }
         }

@@ -46,16 +46,30 @@ public interface EventOutboxRepository extends JpaRepository<EventOutbox, UUID> 
             @Param("batchSize") int batchSize
     );
 
+//    @Query(value = """
+//    SELECT *
+//    FROM event_outbox
+//    WHERE status = 'PROCESSING'
+//      AND locked_at <= :leaseExpiry
+//    ORDER BY locked_at ASC
+//    """, nativeQuery = true)
+//    List<EventOutbox> findExpiredClaims(
+//            @Param("leaseExpiry") Instant leaseExpiry
+//    );
+
+
     @Query(value = """
     SELECT *
     FROM event_outbox
     WHERE status = 'PROCESSING'
       AND locked_at <= :leaseExpiry
     ORDER BY locked_at ASC
+    FOR UPDATE SKIP LOCKED
     """, nativeQuery = true)
     List<EventOutbox> findExpiredClaims(
             @Param("leaseExpiry") Instant leaseExpiry
     );
+
 
 
     @Modifying(flushAutomatically = true,
@@ -90,7 +104,7 @@ public interface EventOutboxRepository extends JpaRepository<EventOutbox, UUID> 
         END,
         next_retry_at = CASE
             WHEN attempts + 1 >= 5 THEN NULL
-            ELSE :nextRetryAt
+            ELSE CAST(:nextRetryAt AS TIMESTAMP WITH TIME ZONE)
         END,
         locked_at = NULL,
         claim_token = NULL

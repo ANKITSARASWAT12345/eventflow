@@ -1,6 +1,6 @@
 package com.eventflow.outbox;
 
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -20,6 +20,10 @@ public class OutboxClaimService {
 
     @Transactional
     public List<EventOutbox> claimPendingEvents(int batchSize) {
+
+        if (batchSize <= 0) {
+            throw new IllegalArgumentException("Batch size must be greater than zero");
+        }
 
         List<EventOutbox> events = outboxRepository.claimPendingEvents(
                 Instant.now(),
